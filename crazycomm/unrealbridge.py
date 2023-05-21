@@ -13,16 +13,13 @@ class UnrealBridge:
         self.sock.settimeout(1)
 
         self.data = {}
-    
-        self.setData("/x", 0)
-        self.setData("/y", 0)
-        self.setData("/z", 0)
-        self.setData("/pitch", 0)
-        self.setData("/roll", 0)
-        self.setData("/yaw", 0)
         
-    def getData(self, key):
-        return self.data.get(key)
+    def getData(self, key, default=None):
+        try:
+            val = self.data[key]
+        except KeyError:
+            return default
+        return val
 
     def setData(self, key, value):
         self.data[key] = value
@@ -46,12 +43,12 @@ class UnrealBridge:
 
             try:
                 while not self.is_stopped.is_set():
-                    x = self.getData("/x")
-                    y = self.getData("/y")
-                    z = self.getData("/z")
-                    pitch = self.getData("/pitch")
-                    roll = self.getData("/roll")
-                    yaw = self.getData("/yaw")
+                    x = self.getData("/x", 0)
+                    y = self.getData("/y", 0)
+                    z = self.getData("/z", 0)
+                    pitch = self.getData("/pitch", 0)
+                    roll = self.getData("/roll", 0)
+                    yaw = self.getData("/yaw", 0)
                     
                     size = 4 * 6
                     buffer = struct.pack(">BBffffff", 1, size, x, y, z, pitch, roll, yaw)
@@ -71,7 +68,15 @@ class UnrealBridge:
                             print("error in frame")
                             continue
                         buffer = conn.recv(length)
-                        print(length, struct.unpack(">fff", buffer))
+                        
+                        cmd_x, cmd_y, cmd_z, cmd_yaw, is_stopped = struct.unpack(">ffffB", buffer)
+
+                        self.setData("/cmd_x", cmd_x)
+                        self.setData("/cmd_y", cmd_y)
+                        self.setData("/cmd_z", cmd_z)
+                        self.setData("/cmd_yaw", cmd_yaw)
+                        self.setData("/cmd_is_stopped", is_stopped)
+
                     except (ConnectionResetError, ConnectionAbortedError):
                         print("connection closed")
                         break

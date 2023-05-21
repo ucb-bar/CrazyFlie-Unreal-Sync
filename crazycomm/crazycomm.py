@@ -48,6 +48,25 @@ class CrazyClient:
         return True
         
 
+    def abs_position_control(scf):
+        with MotionCommander(scf, default_height=DEFAULT_HEIGHT) as mc:
+            target_position = [0, 0, 0]
+            while 1:
+                print(target_position[0], "\t", position_estimate[0])
+                target_position[0] = 0.5 * math.sin(time.time())
+
+                err_x = target_position[0] - position_estimate[0]
+                err_y = target_position[1] - position_estimate[1]
+
+                kp = 1
+
+                vel_x = kp * err_x
+                vel_y = kp * err_y
+
+                mc.start_linear_motion(vel_x, vel_y, 0)
+
+                time.sleep(0.1)
+
     def start(self):
         self.update_watchdog_enabled = False
         cflib.crtp.init_drivers()
@@ -82,52 +101,92 @@ class CrazyClient:
 
 if __name__ == "__main__":
     client = CrazyClient(link="radio://0/80/1M/E7E7E7E7E7")
-    bridge = UnrealBridge(port=8080)
+    bridge = UnrealBridge(port=8000)
 
     client.start()
     bridge.start()
 
     try:
-        while True:
-            # if not client.checkWatchdog():
-            #     print("false")
-            #     client.stop()
-            #     client.start()
-            #     continue
+        with MotionCommander(client.scf, default_height=0.5) as mc:
+            while True:
                 
-            if not client.data:
-                continue
-            
-            x = client.data["stateEstimate.x"]
-            y = client.data["stateEstimate.y"]
-            z = client.data["stateEstimate.z"]
-            pitch = client.data["stateEstimate.pitch"]
-            roll = client.data["stateEstimate.roll"]
-            yaw = client.data["stateEstimate.yaw"]
+                # if not client.checkWatchdog():
+                #     print("false")
+                #     client.stop()
+                #     client.start()
+                #     continue
+                    
+                if not client.data:
+                    continue
+                
+                cf_x = client.data["stateEstimate.x"]
+                cf_y = client.data["stateEstimate.y"]
+                cf_z = client.data["stateEstimate.z"]
+                pitch = client.data["stateEstimate.pitch"]
+                roll = client.data["stateEstimate.roll"]
+                yaw = client.data["stateEstimate.yaw"]
 
-            x_ = x
-            x = -y
-            y = x_
+                # CrazyFlie frame to Our Frame
+                x = -cf_y
+                y = cf_x
+                z = cf_z
 
-            # print("{:3f}\t {:3f}\t {:3f}".format(x, y, z))
-            # print("{:3f}\t {:3f}\t {:3f}".format(pitch, roll, yaw))
+                # print("{:3f}\t {:3f}\t {:3f}".format(x, y, z))
+                # print("{:3f}\t {:3f}\t {:3f}".format(pitch, roll, yaw))
 
 
-            bridge.setData("/x", x)
-            bridge.setData("/y", y)
-            bridge.setData("/z", z)
-            bridge.setData("/pitch", pitch)
-            bridge.setData("/roll", roll)
-            bridge.setData("/yaw", yaw)
-            
-            time.sleep(0.05)
+                bridge.setData("/x", x)
+                bridge.setData("/y", y)
+                bridge.setData("/z", z)
+                bridge.setData("/pitch", pitch)
+                bridge.setData("/roll", roll)
+                bridge.setData("/yaw", yaw)
+
+                
+                cmd_x = bridge.getData("/cmd_x", 0)
+                cmd_y = bridge.getData("/cmd_y", 0)
+                cmd_z = bridge.getData("/cmd_z", 0)
+                cmd_yaw = bridge.getData("/cmd_yaw", 0)
+                cmd_is_stopped = bridge.getData("/cmd_is_stopped", False)
+
+                if cmd_is_stopped:
+                    break
+                
+                keep_off_distance = 0.2
+
+                cmd_x += keep_off_distance * math.sin(cmd_yaw * math.pi / 180)
+                cmd_y += keep_off_distance * math.cos(cmd_yaw * math.pi / 180)
+                # cmd_z += 0.2
+
+                err_x = cmd_x - x
+                err_y = cmd_y - y
+                err_z = cmd_z - z
+
+                # kp_xy = 2.25
+                # kp_z = 1.75
+                
+                kp_xy = 2.5
+                kp_z = 2
+
+                vel_x = kp_xy * err_x
+                vel_y = kp_xy * err_y
+                vel_z = kp_z * err_z
+
+                # Our frame to CrazyFlie Frame
+                cf_vel_x = vel_y
+                cf_vel_y = -vel_x
+                cf_vel_z = vel_z
+
+                mc.start_linear_motion(cf_vel_x, cf_vel_y, cf_vel_z)
+
+                print(cmd_x, x, cmd_is_stopped, cmd_yaw)
+                time.sleep(0.05)
 
 
     except KeyboardInterrupt:
         print("interrupted")
-        client.stop()
-        bridge.stop()
     except Exception as e:
         print(e)
-        client.stop()
-        bridge.stop()
+    
+    client.stop()
+    bridge.stop()
